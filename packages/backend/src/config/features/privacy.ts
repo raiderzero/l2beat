@@ -20,6 +20,7 @@ import {
   ChainSpecificAddress,
   EthereumAddress,
   type UnixTime,
+  unique,
 } from '@l2beat/shared-pure'
 import { utils } from 'ethers'
 import { PrivacyAnonymitySetIndexer } from '../../modules/privacy/indexers/PrivacyAnonymitySetIndexer'
@@ -224,6 +225,9 @@ export async function getPrivacyConfig(
     priceConfigs,
     blockTimestampConfigs,
     chains,
+    liveChains: unique(flowConfigs.map((config) => config.chain)).filter(
+      (chain) => flags.isEnabled('privacy', 'live', chain),
+    ),
   }
 }
 

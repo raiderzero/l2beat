@@ -1,9 +1,13 @@
-import type { ChainBlockRecord, Database } from '@l2beat/database'
+import type {
+  ChainBlockRecord,
+  ChainHeadCursorRecord,
+  Database,
+} from '@l2beat/database'
 import {
   type EVMBlockWithTransactions,
   NotFoundOnRpcError,
 } from '@l2beat/shared'
-import type { UnixTime } from '@l2beat/shared-pure'
+import type { Log, UnixTime } from '@l2beat/shared-pure'
 import { mockFn, mockObject } from 'earl'
 import range from 'lodash/range'
 import { mockDatabase } from '../../../test/database'
@@ -20,6 +24,9 @@ export class FakeChain implements HeadSource {
   private lagging = 0
   private readonly notServedOnce = new Set<number>()
   private readonly forkedOnce = new Set<number>()
+  private readonly logsNotServedOnce = new Set<number>()
+  /** By the hash of the block they are in, so a reorg takes them off the chain */
+  private readonly emitted = new Map<string, Log[]>()
 
   constructor(
     public latest: number,
@@ -39,8 +46,40 @@ export class FakeChain implements HeadSource {
 
   getBlockHash = mockFn(async (number: number) => this.hashOf(number))
 
+  getLogs = mockFn(async (blockHash: string, addresses: string[]) => {
+    const number = range(0, this.latest + 1).find(
+      (number) => this.hashOf(number) === blockHash,
+    )
+    // as a node answers for a block it does not have, or has no longer
+    if (number === undefined || this.logsNotServedOnce.delete(number)) {
+      throw new Error('Unknown block')
+    }
+    return (this.emitted.get(blockHash) ?? []).filter((log) =>
+      addresses.includes(log.address),
+    )
+  })
+
   mine(count = 1) {
     this.latest += count
+  }
+
+  /** Adds a log to a block of the chain as it is now */
+  emit(number: number, log: Pick<Log, 'address' | 'topics' | 'data'>) {
+    const blockHash = this.hashOf(number)
+    const logs = this.emitted.get(blockHash) ?? []
+    logs.push({
+      ...log,
+      blockNumber: number,
+      blockHash,
+      transactionHash: `${blockHash}-tx${logs.length}`,
+      logIndex: logs.length,
+    })
+    this.emitted.set(blockHash, logs)
+  }
+
+  /** The block's logs are asked of a node that does not have the block yet */
+  failToServeLogsOnce(number: number) {
+    this.logsNotServedOnce.add(number)
   }
 
   /** Replaces the blocks from `from` up, leaving the chain `latest` blocks long */
@@ -112,6 +151,8 @@ export class FakeChainBlocks {
       this.rows.sort((a, b) => a.number - b.number)
       return records.length
     },
+    findOldestSince: async (_, timestamp) =>
+      this.rows.find((r) => r.timestamp >= timestamp),
     deleteAfter: async (_, number) => this.keep((r) => r.number <= number),
     deleteByChain: async () => this.keep(() => false),
     deleteBefore: async (_, timestamp) =>
@@ -142,4 +183,37 @@ export class FakeChainBlocks {
     this.rows = this.rows.filter(predicate)
     return before - this.rows.length
   }
+}
+
+/** The `ChainHeadCursor` table, in memory */
+export class FakeChainHeadCursors {
+  rows = new Map<string, ChainHeadCursorRecord>()
+
+  readonly repository = mockObject<Database['chainHeadCursor']>({
+    findByIndexerId: async (indexerId) => this.rows.get(indexerId),
+    upsert: async (record) => {
+      this.rows.set(record.indexerId, record)
+    },
+    deleteByIndexerIds: async (indexerIds) =>
+      indexerIds.filter((indexerId) => this.rows.delete(indexerId)).length,
+  })
+}
+
+/** The `IndexerState` table, in memory: the heights UIF saves */
+export class FakeIndexerStates {
+  rows = new Map<string, { safeHeight: number; configHash?: string }>()
+
+  readonly repository = mockObject<Database['indexerState']>({
+    findByIndexerId: async (indexerId) => {
+      const state = this.rows.get(indexerId)
+      return state && { indexerId, ...state }
+    },
+    upsert: async (record) => {
+      this.rows.set(record.indexerId, record)
+    },
+    updateSafeHeight: async (indexerId, safeHeight) => {
+      this.rows.set(indexerId, { ...this.rows.get(indexerId), safeHeight })
+      return 1
+    },
+  })
 }

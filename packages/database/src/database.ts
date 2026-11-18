@@ -13,6 +13,7 @@ import { AnomalyStatsRepository } from './repositories/AnomalyStatsRepository'
 import { AppStateRepository } from './repositories/AppStateRepository'
 import { BlobsRepository } from './repositories/BlobsRepository'
 import { ChainBlockRepository } from './repositories/ChainBlockRepository'
+import { ChainHeadCursorRepository } from './repositories/ChainHeadCursorRepository'
 import { CropAttestationRepository } from './repositories/CropAttestationRepository'
 import { CurrentPriceRepository } from './repositories/CurrentPriceRepository'
 import { DaBeatStatsRepository } from './repositories/DaBeatStatsRepository'
@@ -39,6 +40,7 @@ import { LiveActivityBlockRepository } from './repositories/LiveActivityBlockRep
 import { LiveBlobBatchRepository } from './repositories/LiveBlobBatchRepository'
 import { LiveBlockRepository } from './repositories/LiveBlockRepository'
 import { LivenessRepository } from './repositories/LivenessRepository'
+import { LivePrivacyFlowEventRepository } from './repositories/LivePrivacyFlowEventRepository'
 import { NotificationsRepository } from './repositories/NotificationsRepository'
 import { PrivacyAnonymitySetEventRepository } from './repositories/PrivacyAnonymitySetEventRepository'
 import { PrivacyBlockTimestampRepository } from './repositories/PrivacyBlockTimestampRepository'
@@ -75,12 +77,14 @@ export function createDatabase(
 
     // #region Chain head
     chainBlock: new ChainBlockRepository(db),
+    chainHeadCursor: new ChainHeadCursorRepository(db),
     // #endregion
 
     // #region Activity
     activity: new ActivityRepository(db),
     hourlyActivity: new HourlyActivityRepository(db),
     liveActivityBlock: new LiveActivityBlockRepository(db),
+    livePrivacyFlowEvent: new LivePrivacyFlowEventRepository(db),
     // #endregion
 
     // #region Interop

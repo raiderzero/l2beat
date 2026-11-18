@@ -394,6 +394,56 @@ describe(ChainHeadIndexer.name, () => {
     })
   })
 
+  describe(ChainHeadIndexer.prototype.getLogs.name, () => {
+    const POOL = '0xpool'
+
+    it('returns the logs of the stored blocks in the order of the chain, with the time of their block', async () => {
+      const chain = new FakeChain(100, GENESIS)
+      chain.emit(99, { address: POOL, topics: ['0xa'], data: '0x' })
+      chain.emit(100, { address: POOL, topics: ['0xb'], data: '0x' })
+      chain.emit(100, { address: POOL, topics: ['0xc'], data: '0x' })
+      const store = new FakeChainBlocks(CHAIN, [
+        chain.block(99),
+        chain.block(100),
+      ])
+
+      const logs = await head(chain, store).getLogs(99, 100, [POOL], [])
+
+      expect(
+        logs.map((log) => [log.blockNumber, log.topics[0], log.blockTimestamp]),
+      ).toEqual([
+        [99, '0xa', GENESIS + 99],
+        [100, '0xb', GENESIS + 100],
+        [100, '0xc', GENESIS + 100],
+      ])
+    })
+
+    it('refuses blocks it has not stored', async () => {
+      const chain = new FakeChain(100, GENESIS)
+      const store = new FakeChainBlocks(CHAIN, [chain.block(100)])
+
+      await expect(
+        head(chain, store).getLogs(99, 100, [POOL], []),
+      ).toBeRejectedWith('Logs asked for blocks the chain head has not stored')
+    })
+
+    it('fails for a stored block the chain replaced, and does not return the logs of its replacement', async () => {
+      const chain = new FakeChain(100, GENESIS)
+      const store = new FakeChainBlocks(CHAIN, [
+        chain.block(99),
+        chain.block(100),
+      ])
+      const indexer = head(chain, store)
+      // the head has not ticked since, so it still holds the replaced block
+      chain.reorg(100)
+      chain.emit(100, { address: POOL, topics: ['0xa'], data: '0x' })
+
+      await expect(indexer.getLogs(99, 100, [POOL], [])).toBeRejectedWith(
+        'Unknown block',
+      )
+    })
+  })
+
   describe(ChainHeadIndexer.prototype.keepAtLeast.name, () => {
     it('keeps blocks for the reader that looks furthest back', async () => {
       const chain = new FakeChain(100, GENESIS)

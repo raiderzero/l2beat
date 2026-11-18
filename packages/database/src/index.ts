@@ -38,6 +38,7 @@ export {
 } from './repositories/AppStateRepository'
 export type { BlobRecord } from './repositories/BlobsRepository'
 export type { ChainBlockRecord } from './repositories/ChainBlockRepository'
+export type { ChainHeadCursorRecord } from './repositories/ChainHeadCursorRepository'
 export type {
   ChainApi,
   ChainRecord,
@@ -131,6 +132,7 @@ export type {
   LiveSlotRange,
 } from './repositories/LiveBlockRepository'
 export type { LivenessRecord } from './repositories/LivenessRepository'
+export type { LivePrivacyFlowEventRecord } from './repositories/LivePrivacyFlowEventRepository'
 export type { NotificationRecord } from './repositories/NotificationsRepository'
 export type {
   PrivacyAnonymitySetEventRecord,

@@ -2,9 +2,10 @@ import type { Logger } from '@l2beat/backend-tools'
 import type { ChainBlockRecord, Database } from '@l2beat/database'
 import {
   type EVMBlockWithTransactions,
+  type LogsTopicFilter,
   NotFoundOnRpcError,
 } from '@l2beat/shared'
-import { assert, UnixTime } from '@l2beat/shared-pure'
+import { assert, type Log, UnixTime } from '@l2beat/shared-pure'
 import { Indexer, RootIndexer } from '@l2beat/uif'
 import range from 'lodash/range'
 import { withCoreFeatureRpcMetricsContext } from '../../tools/coreFeatureRpcMetrics'
@@ -27,7 +28,20 @@ export interface HeadSource {
   /** Both ends included, oldest first */
   getBlocks(from: number, to: number): Promise<EVMBlockWithTransactions[]>
   getBlockHash(number: number): Promise<string>
+  /**
+   * The logs of the block with this hash. Fails when the answering node does
+   * not have the block: asked for by number, a node that is behind answers
+   * with no logs, which reads the same as a block that has none
+   */
+  getLogs(
+    blockHash: string,
+    addresses: string[],
+    topics: LogsTopicFilter,
+  ): Promise<Log[]>
 }
+
+/** A log of a stored block, with the block's timestamp */
+export type HeadLog = Log & { blockTimestamp: UnixTime }
 
 export interface ChainHeadIndexerDependencies {
   chain: string
@@ -192,6 +206,58 @@ export class ChainHeadIndexer extends RootIndexer {
       }
     }
     return blocks
+  }
+
+  /**
+   * The logs of the chain's blocks, both ends included, in the order of the
+   * chain, each with its block's timestamp. As with `getBlocks`, only blocks
+   * the head has stored can be read, and the logs are those of the stored
+   * blocks or the call fails
+   */
+  async getLogs(
+    from: number,
+    to: number,
+    addresses: string[],
+    topics: LogsTopicFilter,
+  ): Promise<HeadLog[]> {
+    const stored = await this.$.db.chainBlock.getByNumberRange(
+      this.$.chain,
+      from,
+      to,
+    )
+    if (stored.length !== to - from + 1) {
+      throw new Error('Logs asked for blocks the chain head has not stored', {
+        cause: { chain: this.$.chain, from, to, stored: stored.length },
+      })
+    }
+
+    const logs = await withCoreFeatureRpcMetricsContext(
+      'chainHead',
+      { chain: this.$.chain, mode: 'read' },
+      () =>
+        Promise.all(
+          stored.map(async (block) => {
+            const logs = await this.$.source.getLogs(
+              block.hash,
+              addresses,
+              topics,
+            )
+            if (logs.some((log) => log.blockHash !== block.hash)) {
+              throw new Error('Source served logs of another block', {
+                cause: { chain: this.$.chain, number: block.number },
+              })
+            }
+            return logs
+              .sort((a, b) => a.logIndex - b.logIndex)
+              .map((log) => ({
+                ...log,
+                blockNumber: block.number,
+                blockTimestamp: block.timestamp,
+              }))
+          }),
+        ),
+    )
+    return logs.flat()
   }
 
   private async store(blocks: EVMBlockWithTransactions[]) {
